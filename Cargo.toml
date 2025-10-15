@@ -1,6 +1,6 @@
 [package]
 name = "rxdc"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 description = "Combines all human interpretable object notation files (yml/toml/json) from the specified directory into a single .(ts/js/lua/luau/json) file."
 repository = "https://github.com/s5wn/rxts-text-parser"

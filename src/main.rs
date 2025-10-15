@@ -21,7 +21,7 @@ fn println_tag(tag: &str, info: &str, color: colored::Color) {
         info.trim().color(color)
     )
 }
-fn write_ts_file(path: &Path, out: String, ext: &str) -> anyhow::Result<bool> {
+fn write_ts_file(path: &Path, out: String, ext: &str, as_const: bool) -> anyhow::Result<bool> {
     let out_path = path.with_extension(ext);
     let out_path_copy = out_path.to_owned();
     let regex = Regex::new(r"(\/\/)+")?;
@@ -42,9 +42,15 @@ fn write_ts_file(path: &Path, out: String, ext: &str) -> anyhow::Result<bool> {
                     json2lua::parse(&out)?
                 )
             ),
-        "js" | "ts" => fs::write(out_path, format!("{prefix_str} \n export default {out}")),
-        "js_const" | "ts_const" =>
-            fs::write(out_path, format!("{prefix_str} \n export default {out} as const")),
+        "js" | "ts" =>
+            fs::write(
+                out_path,
+                format!("{prefix_str} \n export default {out} {}", if as_const {
+                    "as const"
+                } else {
+                    ""
+                })
+            ),
         _ => fs::write(out_path, out),
     })?;
 
@@ -175,5 +181,5 @@ fn main() {
     }
     let out = serde_json::to_string_pretty(&r).expect("FAILED TO STRINGIFY MAP");
     let file_ext = args.output_ext.as_str();
-    write_ts_file(&args.path_out, out, file_ext).expect("FAILED TO WRITE TO FILE");
+    write_ts_file(&args.path_out, out, file_ext, args.add_const).expect("FAILED TO WRITE TO FILE");
 }
