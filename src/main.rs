@@ -1,10 +1,12 @@
 use std::{ env, ffi::OsStr, fs::{ self, File }, io::Read, path::{ Path, PathBuf } };
+use clap::Parser;
 use colored::{ Color, Colorize };
 use glob::glob;
+use regex::Regex;
 use serde_json::{ Map, Value };
-use crate::OUTDATED_parse_args::{ ParsedArgs, Values };
-mod OUTDATED_parse_args;
 mod cli;
+use crate::cli::Cli;
+
 fn read_file(file_path: &OsStr) -> anyhow::Result<String> {
     let path_str = Path::new(file_path);
     let mut file = File::open(path_str)?;
@@ -19,9 +21,10 @@ fn println_tag(tag: &str, info: &str, color: colored::Color) {
         info.trim().color(color)
     )
 }
-fn write_ts_file(path: &str, out: String, ext: &str) -> anyhow::Result<bool> {
-    let out_path = Path::new(&path).with_extension(ext);
+fn write_ts_file(path: &PathBuf, out: String, ext: &str) -> anyhow::Result<bool> {
+    let out_path = path.as_path().with_extension(ext);
     let out_path_copy = out_path.to_owned();
+    let regex = Regex::new(r"(\/\/)+")?;
     let prefix_str = String::from(
         r#"
 // AUTO-GENERATED FILE
@@ -30,6 +33,15 @@ fn write_ts_file(path: &str, out: String, ext: &str) -> anyhow::Result<bool> {
 // :)"#
     );
     (match ext {
+        "lua" | "luau" =>
+            fs::write(
+                out_path,
+                format!(
+                    "{} \n return {}",
+                    regex.replace_all(&prefix_str, "--").to_string(),
+                    json2lua::parse(&out)?
+                )
+            ),
         "js" | "ts" => fs::write(out_path, format!("{prefix_str} \n export default {out}")),
         _ => fs::write(out_path, out),
     })?;
@@ -75,27 +87,31 @@ fn to_map(path: PathBuf) -> anyhow::Result<Option<Map<String, Value>>> {
 fn iter_n_load<'map>(
     path: &Path,
     result_map: &'map mut serde_json::Map<String, serde_json::Value>,
-    omit: &str
+    omit: &Path
 ) -> &'map mut serde_json::Map<String, serde_json::Value> {
-    let omit_components: Vec<_> = Path::new(omit).iter().collect();
-    let count = path.iter().count() - 1;
-    let mut counter: usize = 0;
-    let new_iter = path.iter().map(|str| {
-        let res = match omit_components.get(counter) {
+    let canon_path_in = path.canonicalize().unwrap();
+    let canon_path_omit = omit.canonicalize().unwrap();
+    if !canon_path_in.starts_with(canon_path_omit.to_owned()) {
+        panic!("PATH MISMATCH?");
+    }
+    let canon_path_omit_iter: Vec<_> = canon_path_omit.iter().collect();
+    let total = canon_path_in.iter().count() - 1;
+    let mut counter = 0;
+    let comp_iter = canon_path_in.iter().map(|path_comp| {
+        let some_val = Some(path_comp.to_string_lossy().to_string());
+        let res = match canon_path_omit_iter.get(counter) {
             Some(x) => {
-                if *x != str {
-                    return Some(str.to_string_lossy().to_string());
+                if *x != path_comp {
+                    return some_val;
                 }
                 None
             }
-            None => Some(str.to_string_lossy().to_string()),
+            None => some_val,
         };
         counter += 1;
         res
     });
-
-    new_iter.take(count).fold(result_map, |result_map, path_component| {
-        //  println_tag("PATH COMP:", format!("{:?}", path_component).as_str(), Color::Yellow);
+    comp_iter.take(total).fold(result_map, |result_map, path_component| {
         let Some(path_comp_deref) = path_component else {
             return result_map;
         };
@@ -112,33 +128,23 @@ fn iter_n_load<'map>(
         result_map[&path_comp_deref].as_object_mut().unwrap()
     })
 }
-
 fn main() {
-    let iter = env::args();
-    let parsed = ParsedArgs::parse(iter);
-
-    if parsed.has_tag(&["--debug"]) {
-        println!("{}", parsed.to_string().yellow());
-    }
-    let dir_in = parsed.unordered.get(0).expect("NO ARG0 VALUE SUPPLIED");
-    let dir_out = parsed.unordered.get(1).expect("NO ARG1 VALUE SUPPLIED");
-    let Values::String(dir_out_str) = dir_out else { panic!("ARG1 IS OF INVALID TYPE") };
-    let (rel, files) = if let Values::String(dir_in_str) = dir_in {
-        let path = Path::new(dir_in_str);
+    let args = Cli::parse();
+    let (rel, files) = {
+        let path = args.path_in.as_path();
         if !path.is_dir() || path.is_file() {
             panic!("PATH IS NOT A FOLDER!");
         }
+        let in_path_rel = path.to_owned();
         let path = path.join("**/*.*");
-        (dir_in_str, glob(path.to_str().expect("FAILED TO PARSE PATH")))
-    } else {
-        panic!("ARG0 IS OF INVALID TYPE");
+        (in_path_rel, glob(path.to_str().expect("FAILED TO PARSE PATH")))
     };
     let mut r: Map<String, Value> = Map::new();
     for file in files.expect("FAILED TO GRAB FILES") {
         match file {
             Ok(path) => {
                 let cloned_path = path.to_owned();
-                let fin = iter_n_load(&cloned_path.as_path(), &mut r, &rel);
+                let fin = iter_n_load(&cloned_path.as_path(), &mut r, &rel.as_path());
                 let data = match to_map(cloned_path) {
                     Ok(x) => {
                         println_tag("SUCCESSFULLY PARSED", path.to_str().unwrap(), Color::Green);
@@ -166,10 +172,6 @@ fn main() {
         }
     }
     let out = serde_json::to_string_pretty(&r).expect("FAILED TO STRINGIFY MAP");
-    let file_ext = parsed.get_value(&["-x", "-ext", "-extension"]);
-    if let Some(Values::String(str)) = file_ext {
-        write_ts_file(dir_out_str, out, str).expect("FAILED TO WRITE TO FILE");
-        return;
-    }
-    write_ts_file(dir_out_str, out, "json").expect("FAILED TO WRITE TO FILE");
+    let file_ext = args.output_ext.as_str();
+    write_ts_file(&args.path_out, out, file_ext).expect("FAILED TO WRITE TO FILE");
 }
