@@ -1,8 +1,11 @@
 [package]
-name = "rtxt_gen"
+name = "rxdc"
 version = "0.1.0"
 edition = "2024"
-
+description = "Combines all human interpretable object notation files (yml/toml/json) from the specified directory into a single .(ts/js/lua/luau/json) file."
+repository = "https://github.com/s5wn/rxts-text-parser"
+homepage = "https://github.com/s5wn/rxts-text-parser"
+license = "MIT"
 [dependencies]
 anyhow = "1.0.100"
 colored = "3.0.0"
