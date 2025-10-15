@@ -43,6 +43,8 @@ fn write_ts_file(path: &Path, out: String, ext: &str) -> anyhow::Result<bool> {
                 )
             ),
         "js" | "ts" => fs::write(out_path, format!("{prefix_str} \n export default {out}")),
+        "js_const" | "ts_const" =>
+            fs::write(out_path, format!("{prefix_str} \n export default {out} as const")),
         _ => fs::write(out_path, out),
     })?;
 
