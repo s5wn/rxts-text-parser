@@ -1,4 +1,4 @@
-use std::{ env, ffi::OsStr, fs::{ self, File }, io::Read, path::{ Path, PathBuf } };
+use std::{ ffi::OsStr, fs::{ self, File }, io::Read, path::{ Path, PathBuf } };
 use clap::Parser;
 use colored::{ Color, Colorize };
 use glob::glob;
@@ -21,8 +21,8 @@ fn println_tag(tag: &str, info: &str, color: colored::Color) {
         info.trim().color(color)
     )
 }
-fn write_ts_file(path: &PathBuf, out: String, ext: &str) -> anyhow::Result<bool> {
-    let out_path = path.as_path().with_extension(ext);
+fn write_ts_file(path: &Path, out: String, ext: &str) -> anyhow::Result<bool> {
+    let out_path = path.with_extension(ext);
     let out_path_copy = out_path.to_owned();
     let regex = Regex::new(r"(\/\/)+")?;
     let prefix_str = String::from(
@@ -38,7 +38,7 @@ fn write_ts_file(path: &PathBuf, out: String, ext: &str) -> anyhow::Result<bool>
                 out_path,
                 format!(
                     "{} \n return {}",
-                    regex.replace_all(&prefix_str, "--").to_string(),
+                    regex.replace_all(&prefix_str, "--"),
                     json2lua::parse(&out)?
                 )
             ),
@@ -81,7 +81,7 @@ fn to_map(path: PathBuf) -> anyhow::Result<Option<Map<String, Value>>> {
             Err(error) => Err(error),
         };
     }
-    return Err(anyhow::Error::msg("FAILED TO GET EXPRESSION"));
+    Err(anyhow::Error::msg("FAILED TO GET EXPRESSION"))
 }
 
 fn iter_n_load<'map>(
@@ -91,7 +91,7 @@ fn iter_n_load<'map>(
 ) -> &'map mut serde_json::Map<String, serde_json::Value> {
     let canon_path_in = path.canonicalize().unwrap();
     let canon_path_omit = omit.canonicalize().unwrap();
-    if !canon_path_in.starts_with(canon_path_omit.to_owned()) {
+    if !canon_path_in.starts_with(&canon_path_omit) {
         panic!("PATH MISMATCH?");
     }
     let canon_path_omit_iter: Vec<_> = canon_path_omit.iter().collect();
@@ -144,7 +144,7 @@ fn main() {
         match file {
             Ok(path) => {
                 let cloned_path = path.to_owned();
-                let fin = iter_n_load(&cloned_path.as_path(), &mut r, &rel.as_path());
+                let fin = iter_n_load(cloned_path.as_path(), &mut r, rel.as_path());
                 let data = match to_map(cloned_path) {
                     Ok(x) => {
                         println_tag("SUCCESSFULLY PARSED", path.to_str().unwrap(), Color::Green);
